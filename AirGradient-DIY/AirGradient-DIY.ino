@@ -14,30 +14,10 @@
 AirGradient ag = AirGradient();
 
 // Config ----------------------------------------------------------------------
-
-// Optional.
-const char* deviceId = "";
+#include "airgradient.h"
 
 // set to 'F' to switch display from Celcius to Fahrenheit
 char temp_display = 'C';
-
-// Hardware options for AirGradient DIY sensor.
-const bool hasPM = true;
-const bool hasCO2 = true;
-const bool hasSHT = true;
-
-// WiFi and IP connection info.
-const char* ssid = "PleaseChangeMe";
-const char* password = "PleaseChangeMe";
-const int port = 9926;
-
-// Uncomment the line below to configure a static IP address.
-// #define staticip
-#ifdef staticip
-IPAddress static_ip(192, 168, 0, 0);
-IPAddress gateway(192, 168, 0, 0);
-IPAddress subnet(255, 255, 255, 0);
-#endif
 
 // The frequency of measurement updates.
 const int updateFrequency = 5000;
@@ -45,6 +25,8 @@ const int updateFrequency = 5000;
 // For housekeeping.
 long lastUpdate;
 int counter = 0;
+int lastPm2 = 0;
+int lastCo2 = 0;
 
 // Config End ------------------------------------------------------------------
 
@@ -56,7 +38,7 @@ void setup() {
 
   // Init Display.
   display.init();
-  display.flipScreenVertically();
+  //display.flipScreenVertically();
   showTextRectangle("Init", String(ESP.getChipId(),HEX),true);
 
   // Enable enabled sensors.
@@ -104,8 +86,14 @@ void setup() {
   server.onNotFound(HandleNotFound);
 
   server.begin();
-  Serial.println("HTTP server started at ip " + WiFi.localIP().toString() + ":" + String(port));
-  showTextRectangle("Listening To", WiFi.localIP().toString() + ":" + String(port),true);
+  Serial.println("HTTP server started at IP " + WiFi.localIP().toString() + ":" + String(port));
+  display.clear();
+  display.setTextAlignment(TEXT_ALIGN_LEFT);
+  display.setFont(ArialMT_Plain_10);
+  display.drawString(32, 0, "Listening To");
+  display.drawString(32, 12, WiFi.localIP().toString());
+  display.drawString(32, 24, String(port));
+  display.display();
 }
 
 void loop() {
@@ -115,12 +103,32 @@ void loop() {
   updateScreen(t);
 }
 
+int co2_Raw() {
+  int stat = ag.getCO2_Raw();
+  if (stat > 0) {
+    lastCo2 = stat;
+  } else {
+    stat = lastCo2;
+  }
+  return stat;
+}
+
+int pm2_Raw() {
+  int stat = ag.getPM2_Raw();
+  if (stat > 0 && stat < 5000) {
+    lastPm2 = stat;
+  } else {
+    stat = lastPm2;
+  }
+  return stat;
+}
+
 String GenerateMetrics() {
   String message = "";
   String idString = "{id=\"" + String(deviceId) + "\",mac=\"" + WiFi.macAddress().c_str() + "\"}";
 
   if (hasPM) {
-    int stat = ag.getPM2_Raw();
+    int stat = pm2_Raw();
 
     message += "# HELP pm02 Particulate Matter PM2.5 value\n";
     message += "# TYPE pm02 gauge\n";
@@ -131,7 +139,7 @@ String GenerateMetrics() {
   }
 
   if (hasCO2) {
-    int stat = ag.getCO2_Raw();
+    int stat = co2_Raw();
 
     message += "# HELP rco2 CO2 value, in ppm\n";
     message += "# TYPE rco2 gauge\n";
@@ -186,12 +194,14 @@ void showTextRectangle(String ln1, String ln2, boolean small) {
   display.clear();
   display.setTextAlignment(TEXT_ALIGN_LEFT);
   if (small) {
-    display.setFont(ArialMT_Plain_16);
+//    display.setFont(ArialMT_Plain_16);
+    display.setFont(ArialMT_Plain_10);
   } else {
+//    display.setFont(ArialMT_Plain_16);
     display.setFont(ArialMT_Plain_24);
   }
-  display.drawString(32, 16, ln1);
-  display.drawString(32, 36, ln2);
+  display.drawString(32, 0, ln1);
+  display.drawString(32, 24, ln2);
   display.display();
 }
 
@@ -201,13 +211,13 @@ void updateScreen(long now) {
     switch (counter) {
       case 0:
         if (hasPM) {
-          int stat = ag.getPM2_Raw();
-          showTextRectangle("PM2",String(stat),false);
+          int stat = pm2_Raw();
+          showTextRectangle("PM2", String(stat),false);
         }
         break;
       case 1:
         if (hasCO2) {
-          int stat = ag.getCO2_Raw();
+          int stat = co2_Raw();
           showTextRectangle("CO2", String(stat), false);
         }
         break;
@@ -227,9 +237,12 @@ void updateScreen(long now) {
           showTextRectangle("HUM", String(stat.rh) + "%", false);
         }
         break;
+      case 4:
+        showTextRectangle("IP", WiFi.localIP().toString(), true);
+        break;
     }
     counter++;
-    if (counter > 3) counter = 0;
+    if (counter > 4) counter = 0;
     lastUpdate = millis();
   }
 }
